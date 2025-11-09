@@ -1,0 +1,1002 @@
+-- ═══════════════════════════════════════════════════════════════
+-- 🔍 ASSET EXPLORER - MOBILE VERSION (SCROLL FIXED)
+-- Fixed scroll system with working manual scroll buttons
+-- ═══════════════════════════════════════════════════════════════
+
+print("Loading Asset Explorer Mobile...")
+wait(0.5)
+
+-- ═══════════════════════════════════════════════════════════════
+-- SERVICES
+-- ═══════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════════
+-- SCANNER
+-- ═══════════════════════════════════════════════════════════════
+
+local Scanner = {
+    Assets = {},
+    Total = 0,
+    IsScanning = false
+}
+
+function Scanner:GetInfo(obj)
+    local info = {
+        Name = obj.Name,
+        Class = obj.ClassName,
+        Path = obj:GetFullName(),
+        AssetId = "",
+        Pos = nil,
+        Object = obj  -- Store reference to actual object
+    }
+    
+    -- Get Asset ID if available
+    pcall(function()
+        if obj:IsA("MeshPart") and obj.MeshId ~= "" then
+            info.AssetId = obj.MeshId
+        elseif obj:IsA("Sound") and obj.SoundId ~= "" then
+            info.AssetId = obj.SoundId
+        elseif obj:IsA("Decal") and obj.Texture ~= "" then
+            info.AssetId = obj.Texture
+        elseif obj:IsA("Texture") and obj.Texture ~= "" then
+            info.AssetId = obj.Texture
+        elseif obj:IsA("SpecialMesh") and obj.MeshId ~= "" then
+            info.AssetId = obj.MeshId
+        end
+    end)
+    
+    if obj:IsA("BasePart") then
+        info.Pos = obj.Position
+    elseif obj:IsA("Model") and obj.PrimaryPart then
+        info.Pos = obj.PrimaryPart.Position
+    end
+    
+    return info
+end
+
+function Scanner:Scan(parent, depth)
+    if depth > 50 then return end  -- Increased from 20 to 50 for deeper scanning
+    
+    for _, obj in pairs(parent:GetChildren()) do
+        pcall(function()
+            table.insert(self.Assets, self:GetInfo(obj))
+            self.Total = self.Total + 1
+            self:Scan(obj, depth + 1)
+        end)
+    end
+end
+
+function Scanner:ScanAll()
+    self.Assets = {}
+    self.Total = 0
+    self.IsScanning = true
+    
+    self:Scan(workspace, 0)
+    
+    self.IsScanning = false
+end
+
+function Scanner:Search(query)
+    local results = {}
+    query = string.lower(query)
+    
+    for _, asset in pairs(self.Assets) do
+        if string.find(string.lower(asset.Name), query) then
+            table.insert(results, asset)
+        end
+    end
+    
+    return results
+end
+
+function Scanner:FilterDuplicates()
+    local unique = {}
+    local seen = {}
+    
+    for _, asset in pairs(self.Assets) do
+        local key = asset.Name .. "|" .. asset.Class
+        if not seen[key] then
+            seen[key] = true
+            table.insert(unique, asset)
+        end
+    end
+    
+    return unique
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- CREATE GUI
+-- ═══════════════════════════════════════════════════════════════
+
+local Parent = CoreGui
+pcall(function()
+    local test = Instance.new("ScreenGui", CoreGui)
+    test:Destroy()
+end)
+
+if not pcall(function() return CoreGui.Name end) then
+    Parent = player:WaitForChild("PlayerGui")
+end
+
+-- Remove old
+for _, gui in pairs(Parent:GetChildren()) do
+    if gui.Name == "AssetExplorerMobile" then
+        gui:Destroy()
+    end
+end
+
+-- ScreenGui
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AssetExplorerMobile"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = Parent
+
+-- Main Frame
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 700, 0, 500)
+Main.Position = UDim2.new(0.5, -350, 0.5, -250)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = Main
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Main
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleBar
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -115, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "🔍 Asset Explorer Mobile"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TitleBar
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 16
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.Parent = CloseBtn
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+-- Minimize Button
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 30, 0, 30)
+MinBtn.Position = UDim2.new(1, -70, 0, 5)
+MinBtn.BackgroundColor3 = Color3.fromRGB(220, 180, 50)
+MinBtn.Text = "-"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextSize = 20
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.BorderSizePixel = 0
+MinBtn.Parent = TitleBar
+
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 8)
+MinCorner.Parent = MinBtn
+
+local isMinimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    if isMinimized then
+        Main.Size = UDim2.new(0, 700, 0, 500)
+        MinBtn.Text = "-"
+        isMinimized = false
+    else
+        Main.Size = UDim2.new(0, 700, 0, 40)
+        MinBtn.Text = "+"
+        isMinimized = true
+    end
+end)
+
+-- Resize Button
+local ResizeBtn = Instance.new("TextButton")
+ResizeBtn.Size = UDim2.new(0, 30, 0, 30)
+ResizeBtn.Position = UDim2.new(1, -105, 0, 5)
+ResizeBtn.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+ResizeBtn.Text = "⊞"
+ResizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ResizeBtn.TextSize = 18
+ResizeBtn.Font = Enum.Font.GothamBold
+ResizeBtn.BorderSizePixel = 0
+ResizeBtn.Parent = TitleBar
+
+local ResizeCorner = Instance.new("UICorner")
+ResizeCorner.CornerRadius = UDim.new(0, 8)
+ResizeCorner.Parent = ResizeBtn
+
+local currentSize = 2
+local sizes = {
+    {width = 500, height = 400},
+    {width = 700, height = 500},
+    {width = 900, height = 650}
+}
+
+ResizeBtn.MouseButton1Click:Connect(function()
+    if isMinimized then return end
+    
+    currentSize = currentSize + 1
+    if currentSize > 3 then currentSize = 1 end
+    
+    local size = sizes[currentSize]
+    Main.Size = UDim2.new(0, size.width, 0, size.height)
+    Main.Position = UDim2.new(0.5, -size.width/2, 0.5, -size.height/2)
+    
+    if currentSize == 1 then
+        ResizeBtn.Text = "⊡"
+    elseif currentSize == 2 then
+        ResizeBtn.Text = "⊞"
+    else
+        ResizeBtn.Text = "⊠"
+    end
+end)
+
+-- Container
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(1, -10, 1, -50)
+Container.Position = UDim2.new(0, 5, 0, 45)
+Container.BackgroundTransparency = 1
+Container.Parent = Main
+
+-- Left Panel (Controls)
+local LeftPanel = Instance.new("ScrollingFrame")
+LeftPanel.Name = "LeftPanel"
+LeftPanel.Size = UDim2.new(0.48, 0, 1, 0)
+LeftPanel.Position = UDim2.new(0, 0, 0, 0)
+LeftPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+LeftPanel.BorderSizePixel = 0
+LeftPanel.ScrollBarThickness = 6
+LeftPanel.CanvasSize = UDim2.new(0, 0, 0, 0)
+LeftPanel.Parent = Container
+
+local LeftCorner = Instance.new("UICorner")
+LeftCorner.CornerRadius = UDim.new(0, 8)
+LeftCorner.Parent = LeftPanel
+
+local LeftLayout = Instance.new("UIListLayout")
+LeftLayout.Padding = UDim.new(0, 5)
+LeftLayout.SortOrder = Enum.SortOrder.LayoutOrder
+LeftLayout.Parent = LeftPanel
+
+local LeftPadding = Instance.new("UIPadding")
+LeftPadding.PaddingTop = UDim.new(0, 8)
+LeftPadding.PaddingBottom = UDim.new(0, 8)
+LeftPadding.PaddingLeft = UDim.new(0, 8)
+LeftPadding.PaddingRight = UDim.new(0, 8)
+LeftPadding.Parent = LeftPanel
+
+LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    LeftPanel.CanvasSize = UDim2.new(0, 0, 0, LeftLayout.AbsoluteContentSize.Y + 16)
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- RIGHT PANEL WITH SCROLL BUTTONS
+-- ═══════════════════════════════════════════════════════════════
+
+-- Right Panel Header
+local RightHeader = Instance.new("Frame")
+RightHeader.Name = "RightHeader"
+RightHeader.Size = UDim2.new(0.48, 0, 0, 35)
+RightHeader.Position = UDim2.new(0.52, 0, 0, 0)
+RightHeader.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+RightHeader.BorderSizePixel = 0
+RightHeader.Parent = Container
+
+local RightHeaderCorner = Instance.new("UICorner")
+RightHeaderCorner.CornerRadius = UDim.new(0, 8)
+RightHeaderCorner.Parent = RightHeader
+
+local RightHeaderLabel = Instance.new("TextLabel")
+RightHeaderLabel.Size = UDim2.new(1, -150, 1, 0)
+RightHeaderLabel.Position = UDim2.new(0, 10, 0, 0)
+RightHeaderLabel.BackgroundTransparency = 1
+RightHeaderLabel.Text = "📋 RESULTS"
+RightHeaderLabel.TextColor3 = Color3.fromRGB(100, 180, 255)
+RightHeaderLabel.TextSize = 13
+RightHeaderLabel.Font = Enum.Font.GothamBold
+RightHeaderLabel.TextXAlignment = Enum.TextXAlignment.Left
+RightHeaderLabel.Parent = RightHeader
+
+-- Scroll UP Button
+local ScrollUpBtn = Instance.new("TextButton")
+ScrollUpBtn.Size = UDim2.new(0, 65, 0, 27)
+ScrollUpBtn.Position = UDim2.new(1, -138, 0, 4)
+ScrollUpBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+ScrollUpBtn.Text = "⬆️ UP"
+ScrollUpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScrollUpBtn.TextSize = 11
+ScrollUpBtn.Font = Enum.Font.GothamBold
+ScrollUpBtn.BorderSizePixel = 0
+ScrollUpBtn.Parent = RightHeader
+
+local ScrollUpCorner = Instance.new("UICorner")
+ScrollUpCorner.CornerRadius = UDim.new(0, 6)
+ScrollUpCorner.Parent = ScrollUpBtn
+
+-- Scroll DOWN Button
+local ScrollDownBtn = Instance.new("TextButton")
+ScrollDownBtn.Size = UDim2.new(0, 65, 0, 27)
+ScrollDownBtn.Position = UDim2.new(1, -68, 0, 4)
+ScrollDownBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+ScrollDownBtn.Text = "⬇️ DOWN"
+ScrollDownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScrollDownBtn.TextSize = 11
+ScrollDownBtn.Font = Enum.Font.GothamBold
+ScrollDownBtn.BorderSizePixel = 0
+ScrollDownBtn.Parent = RightHeader
+
+local ScrollDownCorner = Instance.new("UICorner")
+ScrollDownCorner.CornerRadius = UDim.new(0, 6)
+ScrollDownCorner.Parent = ScrollDownBtn
+
+-- Right Panel (Results) - FIXED SCROLL
+local RightPanel = Instance.new("ScrollingFrame")
+RightPanel.Name = "RightPanel"
+RightPanel.Size = UDim2.new(0.48, 0, 1, -40)
+RightPanel.Position = UDim2.new(0.52, 0, 0, 40)
+RightPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+RightPanel.BorderSizePixel = 0
+RightPanel.ScrollBarThickness = 12
+RightPanel.ScrollBarImageColor3 = Color3.fromRGB(100, 180, 255)
+RightPanel.ScrollingDirection = Enum.ScrollingDirection.Y
+RightPanel.CanvasSize = UDim2.new(0, 0, 0, 0)
+RightPanel.ScrollingEnabled = true
+RightPanel.Active = true
+RightPanel.ElasticBehavior = Enum.ElasticBehavior.Always
+RightPanel.Parent = Container
+
+local RightCorner = Instance.new("UICorner")
+RightCorner.CornerRadius = UDim.new(0, 8)
+RightCorner.Parent = RightPanel
+
+local RightLayout = Instance.new("UIListLayout")
+RightLayout.Padding = UDim.new(0, 5)
+RightLayout.SortOrder = Enum.SortOrder.LayoutOrder
+RightLayout.Parent = RightPanel
+
+local RightPadding = Instance.new("UIPadding")
+RightPadding.PaddingTop = UDim.new(0, 8)
+RightPadding.PaddingBottom = UDim.new(0, 8)
+RightPadding.PaddingLeft = UDim.new(0, 8)
+RightPadding.PaddingRight = UDim.new(0, 8)
+RightPadding.Parent = RightPanel
+
+-- Auto-update CanvasSize dengan extra padding
+RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    local contentHeight = RightLayout.AbsoluteContentSize.Y
+    RightPanel.CanvasSize = UDim2.new(0, 0, 0, contentHeight + 50)
+end)
+
+-- SCROLL BUTTON FUNCTIONS
+ScrollUpBtn.MouseButton1Click:Connect(function()
+    local currentY = RightPanel.CanvasPosition.Y
+    local targetPos = math.max(0, currentY - 200)
+    print(string.format("⬆️ Scroll UP: %d → %d", currentY, targetPos))
+    TweenService:Create(RightPanel, TweenInfo.new(0.3), {CanvasPosition = Vector2.new(0, targetPos)}):Play()
+end)
+
+ScrollDownBtn.MouseButton1Click:Connect(function()
+    local canvasHeight = RightPanel.CanvasSize.Y.Offset
+    local windowHeight = RightPanel.AbsoluteWindowSize.Y
+    local currentY = RightPanel.CanvasPosition.Y
+    local maxScroll = math.max(0, canvasHeight - windowHeight)
+    local targetPos = math.min(maxScroll, currentY + 200)
+    
+    print(string.format("⬇️ Scroll DOWN: %d → %d (max: %d, canvas: %d, window: %d)", 
+        currentY, targetPos, maxScroll, canvasHeight, windowHeight))
+    
+    TweenService:Create(RightPanel, TweenInfo.new(0.3), {CanvasPosition = Vector2.new(0, targetPos)}):Play()
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- UI HELPERS
+-- ═══════════════════════════════════════════════════════════════
+
+local function ClearResults()
+    for _, child in pairs(RightPanel:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
+        end
+    end
+    
+    RightLayout = Instance.new("UIListLayout")
+    RightLayout.Padding = UDim.new(0, 5)
+    RightLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    RightLayout.Parent = RightPanel
+    
+    -- Auto-update CanvasSize dengan extra padding
+    RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        local contentHeight = RightLayout.AbsoluteContentSize.Y
+        RightPanel.CanvasSize = UDim2.new(0, 0, 0, contentHeight + 50)
+    end)
+    
+    RightPadding = Instance.new("UIPadding")
+    RightPadding.PaddingTop = UDim.new(0, 8)
+    RightPadding.PaddingBottom = UDim.new(0, 8)
+    RightPadding.PaddingLeft = UDim.new(0, 8)
+    RightPadding.PaddingRight = UDim.new(0, 8)
+    RightPadding.Parent = RightPanel
+    
+    -- Reset scroll to top
+    RightPanel.CanvasPosition = Vector2.new(0, 0)
+end
+
+local function CreateSection(parent, text)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, 0, 0, 28)
+    section.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    section.BorderSizePixel = 0
+    section.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = section
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(100, 180, 255)
+    label.TextSize = 13
+    label.Font = Enum.Font.GothamBold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = section
+end
+
+local function CreateButton(parent, text, color, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.BackgroundColor3 = color
+    btn.BorderSizePixel = 0
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        spawn(callback)
+    end)
+end
+
+local function CreateLabel(parent, text, height)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, height or 40)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.TextSize = 12
+    label.Font = Enum.Font.Gotham
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    label.Parent = parent
+    return label
+end
+
+local function CreateTextBox(parent, placeholder, callback)
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(1, 0, 0, 35)
+    box.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    box.BorderSizePixel = 0
+    box.PlaceholderText = placeholder
+    box.Text = ""
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    box.TextSize = 12
+    box.Font = Enum.Font.Gotham
+    box.ClearTextOnFocus = false
+    box.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = box
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 8)
+    padding.Parent = box
+    
+    box.FocusLost:Connect(function(enter)
+        if enter and box.Text ~= "" then
+            spawn(function() callback(box.Text) end)
+        end
+    end)
+end
+
+local function CreateResultItem(asset, index)
+    -- Calculate height based on content
+    local baseHeight = 110  -- Increased for more buttons
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, baseHeight)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    frame.BorderSizePixel = 0
+    frame.Parent = RightPanel
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+    
+    -- Index
+    local idx = Instance.new("TextLabel")
+    idx.Size = UDim2.new(0, 30, 0, 16)
+    idx.Position = UDim2.new(0, 8, 0, 8)
+    idx.BackgroundTransparency = 1
+    idx.Text = tostring(index)
+    idx.TextColor3 = Color3.fromRGB(100, 180, 255)
+    idx.TextSize = 12
+    idx.Font = Enum.Font.GothamBold
+    idx.TextXAlignment = Enum.TextXAlignment.Left
+    idx.Parent = frame
+    
+    -- Name
+    local name = Instance.new("TextLabel")
+    name.Size = UDim2.new(1, -125, 0, 16)
+    name.Position = UDim2.new(0, 40, 0, 8)
+    name.BackgroundTransparency = 1
+    name.Text = asset.Name
+    name.TextColor3 = Color3.fromRGB(255, 255, 255)
+    name.TextSize = 12
+    name.Font = Enum.Font.GothamBold
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.TextTruncate = Enum.TextTruncate.AtEnd
+    name.Parent = frame
+    
+    -- Class
+    local class = Instance.new("TextLabel")
+    class.Size = UDim2.new(1, -125, 0, 14)
+    class.Position = UDim2.new(0, 40, 0, 26)
+    class.BackgroundTransparency = 1
+    class.Text = "Type: " .. asset.Class
+    class.TextColor3 = Color3.fromRGB(150, 150, 150)
+    class.TextSize = 10
+    class.Font = Enum.Font.Gotham
+    class.TextXAlignment = Enum.TextXAlignment.Left
+    class.Parent = frame
+    
+    -- Path (File Location)
+    local path = Instance.new("TextLabel")
+    path.Size = UDim2.new(1, -125, 0, 14)
+    path.Position = UDim2.new(0, 40, 0, 42)
+    path.BackgroundTransparency = 1
+    path.Text = "📁 " .. asset.Path
+    path.TextColor3 = Color3.fromRGB(100, 200, 255)
+    path.TextSize = 9
+    path.Font = Enum.Font.Gotham
+    path.TextXAlignment = Enum.TextXAlignment.Left
+    path.TextTruncate = Enum.TextTruncate.AtEnd
+    path.Parent = frame
+    
+    -- Asset ID (if available)
+    if asset.AssetId and asset.AssetId ~= "" then
+        local assetIdLabel = Instance.new("TextLabel")
+        assetIdLabel.Size = UDim2.new(1, -125, 0, 14)
+        assetIdLabel.Position = UDim2.new(0, 40, 0, 58)
+        assetIdLabel.BackgroundTransparency = 1
+        assetIdLabel.Text = "🆔 " .. asset.AssetId
+        assetIdLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        assetIdLabel.TextSize = 9
+        assetIdLabel.Font = Enum.Font.Gotham
+        assetIdLabel.TextXAlignment = Enum.TextXAlignment.Left
+        assetIdLabel.TextTruncate = Enum.TextTruncate.AtEnd
+        assetIdLabel.Parent = frame
+        
+        frame.Size = UDim2.new(1, 0, 0, baseHeight + 16)
+    end
+    
+    -- Position (if available)
+    if asset.Pos then
+        local yPos = asset.AssetId ~= "" and 74 or 58
+        
+        local pos = Instance.new("TextLabel")
+        pos.Size = UDim2.new(1, -125, 0, 14)
+        pos.Position = UDim2.new(0, 40, 0, yPos)
+        pos.BackgroundTransparency = 1
+        pos.Text = string.format("📍 %.0f, %.0f, %.0f", asset.Pos.X, asset.Pos.Y, asset.Pos.Z)
+        pos.TextColor3 = Color3.fromRGB(150, 150, 150)
+        pos.TextSize = 9
+        pos.Font = Enum.Font.Gotham
+        pos.TextXAlignment = Enum.TextXAlignment.Left
+        pos.Parent = frame
+        
+        if asset.AssetId ~= "" then
+            frame.Size = UDim2.new(1, 0, 0, baseHeight + 32)
+        else
+            frame.Size = UDim2.new(1, 0, 0, baseHeight + 16)
+        end
+    end
+    
+    -- Copy Path Button
+    local copyPathBtn = Instance.new("TextButton")
+    copyPathBtn.Size = UDim2.new(0, 55, 0, 22)
+    copyPathBtn.Position = UDim2.new(1, -63, 0, 6)
+    copyPathBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+    copyPathBtn.Text = "📋 Path"
+    copyPathBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    copyPathBtn.TextSize = 9
+    copyPathBtn.Font = Enum.Font.GothamBold
+    copyPathBtn.BorderSizePixel = 0
+    copyPathBtn.Parent = frame
+    
+    local copyPathCorner = Instance.new("UICorner")
+    copyPathCorner.CornerRadius = UDim.new(0, 4)
+    copyPathCorner.Parent = copyPathBtn
+    
+    copyPathBtn.MouseButton1Click:Connect(function()
+        setclipboard(asset.Path)
+        copyPathBtn.Text = "✅"
+        copyPathBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        wait(1)
+        copyPathBtn.Text = "📋 Path"
+        copyPathBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+    end)
+    
+    -- Clone Button
+    local cloneBtn = Instance.new("TextButton")
+    cloneBtn.Size = UDim2.new(0, 55, 0, 22)
+    cloneBtn.Position = UDim2.new(1, -63, 0, 32)
+    cloneBtn.BackgroundColor3 = Color3.fromRGB(100, 180, 100)
+    cloneBtn.Text = "📑 Clone"
+    cloneBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cloneBtn.TextSize = 9
+    cloneBtn.Font = Enum.Font.GothamBold
+    cloneBtn.BorderSizePixel = 0
+    cloneBtn.Parent = frame
+    
+    local cloneCorner = Instance.new("UICorner")
+    cloneCorner.CornerRadius = UDim.new(0, 4)
+    cloneCorner.Parent = cloneBtn
+    
+    cloneBtn.MouseButton1Click:Connect(function()
+        pcall(function()
+            if asset.Object and asset.Object.Parent then
+                local cloned = asset.Object:Clone()
+                cloned.Parent = asset.Object.Parent
+                cloned.Name = asset.Object.Name .. "_Clone"
+                
+                cloneBtn.Text = "✅"
+                cloneBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+                print("✅ Cloned:", asset.Name, "→", cloned.Name)
+                wait(1)
+                cloneBtn.Text = "📑 Clone"
+                cloneBtn.BackgroundColor3 = Color3.fromRGB(100, 180, 100)
+            end
+        end)
+    end)
+    
+    -- Delete Button
+    local deleteBtn = Instance.new("TextButton")
+    deleteBtn.Size = UDim2.new(0, 55, 0, 22)
+    deleteBtn.Position = UDim2.new(1, -63, 0, 58)
+    deleteBtn.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+    deleteBtn.Text = "🗑️ Delete"
+    deleteBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    deleteBtn.TextSize = 9
+    deleteBtn.Font = Enum.Font.GothamBold
+    deleteBtn.BorderSizePixel = 0
+    deleteBtn.Parent = frame
+    
+    local deleteCorner = Instance.new("UICorner")
+    deleteCorner.CornerRadius = UDim.new(0, 4)
+    deleteCorner.Parent = deleteBtn
+    
+    deleteBtn.MouseButton1Click:Connect(function()
+        pcall(function()
+            if asset.Object and asset.Object.Parent then
+                local objName = asset.Object.Name
+                asset.Object:Destroy()
+                
+                deleteBtn.Text = "✅"
+                deleteBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+                print("🗑️ Deleted:", objName)
+                
+                -- Remove from display
+                wait(0.5)
+                frame:Destroy()
+            end
+        end)
+    end)
+    
+    -- TP Button (if has position)
+    if asset.Pos then
+        local tp = Instance.new("TextButton")
+        tp.Size = UDim2.new(0, 55, 0, 22)
+        tp.Position = UDim2.new(1, -63, 0, 84)
+        tp.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+        tp.Text = "🚀 TP"
+        tp.TextColor3 = Color3.fromRGB(255, 255, 255)
+        tp.TextSize = 10
+        tp.Font = Enum.Font.GothamBold
+        tp.BorderSizePixel = 0
+        tp.Parent = frame
+        
+        local tpCorner = Instance.new("UICorner")
+        tpCorner.CornerRadius = UDim.new(0, 4)
+        tpCorner.Parent = tp
+        
+        tp.MouseButton1Click:Connect(function()
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                player.Character.HumanoidRootPart.CFrame = CFrame.new(asset.Pos + Vector3.new(0, 5, 0))
+                tp.Text = "✅"
+                tp.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+                wait(1)
+                tp.Text = "🚀 TP"
+                tp.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+            end
+        end)
+    end
+end
+
+local function ShowResults(results, title)
+    ClearResults()
+    
+    RightHeaderLabel.Text = string.format("📋 %s (%d)", title, #results)
+    
+    if #results == 0 then
+        CreateLabel(RightPanel, "No results found\n\nTry scanning first or\nuse different search", 80)
+        return
+    end
+    
+    -- Calculate EXACT canvas size BEFORE creating items
+    local avgItemHeight = 125  -- Average height with all buttons
+    local itemSpacing = 5  -- Space between items
+    local topPadding = 8
+    local bottomPadding = 8
+    
+    local totalHeight = topPadding + (#results * avgItemHeight) + ((#results - 1) * itemSpacing) + bottomPadding
+    
+    -- SET CANVAS SIZE FIRST (before creating items)
+    RightPanel.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+    
+    print(string.format("🔧 Setting Canvas Height: %d for %d items", totalHeight, #results))
+    
+    -- Now create all items
+    for i = 1, #results do
+        CreateResultItem(results[i], i)
+    end
+    
+    -- Double-check and force set again after items created
+    wait(0.1)
+    RightPanel.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+    
+    -- Scroll to top
+    RightPanel.CanvasPosition = Vector2.new(0, 0)
+    
+    print(string.format("✅ Loaded %d results | Canvas Height: %d | Can scroll to: %d", 
+        #results, totalHeight, totalHeight - RightPanel.AbsoluteWindowSize.Y))
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- BUILD LEFT PANEL
+-- ═══════════════════════════════════════════════════════════════
+
+CreateSection(LeftPanel, "📊 STATUS")
+local statsLabel = CreateLabel(LeftPanel, "Not scanned\nClick SCAN ALL to start", 45)
+
+local function UpdateStats()
+    statsLabel.Text = string.format("Total Assets: %d\nReady to search!", Scanner.Total)
+end
+
+CreateSection(LeftPanel, "🎮 CONTROLS")
+
+CreateButton(LeftPanel, "🔍 SCAN ALL", Color3.fromRGB(50, 150, 70), function()
+    if Scanner.IsScanning then return end
+    
+    ClearResults()
+    CreateLabel(RightPanel, "⏳ Scanning...\nPlease wait", 100).TextSize = 14
+    
+    Scanner:ScanAll()
+    UpdateStats()
+    
+    ClearResults()
+    CreateLabel(RightPanel, string.format("✅ Scan Complete!\n\n%d assets found\n\nUse search or categories", Scanner.Total), 100).TextSize = 13
+end)
+
+CreateButton(LeftPanel, "🗺️ WORKSPACE", Color3.fromRGB(50, 100, 200), function()
+    Scanner.Assets = {}
+    Scanner.Total = 0
+    Scanner:Scan(workspace, 0)
+    UpdateStats()
+    
+    ClearResults()
+    CreateLabel(RightPanel, string.format("✅ Workspace Scanned!\n\n%d assets found", Scanner.Total), 80).TextSize = 13
+end)
+
+CreateButton(LeftPanel, "🗑️ CLEAR", Color3.fromRGB(200, 60, 60), function()
+    Scanner.Assets = {}
+    Scanner.Total = 0
+    UpdateStats()
+    ClearResults()
+    CreateLabel(RightPanel, "Results cleared", 40)
+end)
+
+CreateSection(LeftPanel, "🔍 SEARCH")
+
+CreateTextBox(LeftPanel, "Type name & press ENTER", function(query)
+    local results = Scanner:Search(query)
+    ShowResults(results, "SEARCH: " .. query)
+end)
+
+CreateSection(LeftPanel, "🔧 FILTER")
+
+CreateButton(LeftPanel, "🎯 REMOVE DUPLICATES", Color3.fromRGB(180, 140, 60), function()
+    local unique = Scanner:FilterDuplicates()
+    local duplicatesRemoved = #Scanner.Assets - #unique
+    
+    ShowResults(unique, "UNIQUE ONLY")
+    
+    print("═══════════════════════════════════")
+    print("🎯 FILTER: Remove Duplicates")
+    print("═══════════════════════════════════")
+    print("Total assets:", #Scanner.Assets)
+    print("Unique assets:", #unique)
+    print("Duplicates removed:", duplicatesRemoved)
+    print("═══════════════════════════════════")
+end)
+
+CreateSection(LeftPanel, "📁 CATEGORIES")
+
+local categories = {
+    {name = "Model", icon = "🏗️"},
+    {name = "Part", icon = "🧱"},
+    {name = "MeshPart", icon = "🗿"},
+    {name = "Sound", icon = "🔊"},
+    {name = "Light", icon = "💡"},
+}
+
+for _, cat in ipairs(categories) do
+    CreateButton(LeftPanel, cat.icon .. " " .. cat.name, Color3.fromRGB(60, 60, 80), function()
+        local results = {}
+        for _, asset in ipairs(Scanner.Assets) do
+            if string.find(asset.Class, cat.name) then
+                table.insert(results, asset)
+            end
+        end
+        ShowResults(results, cat.name .. "s")
+    end)
+end
+
+CreateSection(LeftPanel, "📍 NEARBY")
+
+CreateButton(LeftPanel, "🔍 FIND NEARBY", Color3.fromRGB(100, 70, 150), function()
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        ClearResults()
+        CreateLabel(RightPanel, "❌ Character not found\n\nRespawn and try again", 80)
+        return
+    end
+    
+    local playerPos = player.Character.HumanoidRootPart.Position
+    local nearby = {}
+    
+    for _, asset in pairs(Scanner.Assets) do
+        if asset.Pos then
+            local dist = (asset.Pos - playerPos).Magnitude
+            if dist <= 50 then
+                table.insert(nearby, {asset = asset, dist = dist})
+            end
+        end
+    end
+    
+    table.sort(nearby, function(a, b) return a.dist < b.dist end)
+    
+    local results = {}
+    for _, data in ipairs(nearby) do
+        local copy = {}
+        for k, v in pairs(data.asset) do copy[k] = v end
+        copy.Name = string.format("[%.1fm] %s", data.dist, data.asset.Name)
+        table.insert(results, copy)
+    end
+    
+    ShowResults(results, "NEARBY 50m")
+end)
+
+CreateSection(LeftPanel, "🆔 ASSET IDs")
+
+CreateButton(LeftPanel, "📋 GET ALL ASSET IDs", Color3.fromRGB(180, 100, 180), function()
+    local assetsWithIds = {}
+    
+    for _, asset in pairs(Scanner.Assets) do
+        if asset.AssetId and asset.AssetId ~= "" then
+            table.insert(assetsWithIds, asset)
+        end
+    end
+    
+    if #assetsWithIds == 0 then
+        ClearResults()
+        CreateLabel(RightPanel, "❌ No assets with Asset IDs found\n\nAsset IDs are found in:\n• MeshParts\n• Sounds\n• Decals\n• Textures", 100)
+        return
+    end
+    
+    ShowResults(assetsWithIds, "ASSET IDs")
+    
+    -- Also print to console
+    print("═══════════════════════════════════")
+    print("🆔 ALL ASSET IDs (" .. #assetsWithIds .. " found)")
+    print("═══════════════════════════════════")
+    
+    for i, asset in ipairs(assetsWithIds) do
+        if i <= 50 then
+            print(string.format("[%d] %s", i, asset.Name))
+            print("    Type:", asset.Class)
+            print("    Path:", asset.Path)
+            print("    ID:", asset.AssetId)
+            print("")
+        end
+    end
+    
+    if #assetsWithIds > 50 then
+        print("... and", #assetsWithIds - 50, "more Asset IDs")
+    end
+    
+    print("═══════════════════════════════════")
+end)
+
+CreateSection(LeftPanel, "ℹ️ INFO")
+CreateLabel(LeftPanel, "✨ New Features:\n• Clone assets (📑)\n• Delete assets (🗑️)\n• Filter duplicates (🎯)\n• Copy path (📋)\n• Deep scan (50 levels)", 105)
+
+-- ═══════════════════════════════════════════════════════════════
+-- INITIAL MESSAGE
+-- ═══════════════════════════════════════════════════════════════
+
+local welcome = Instance.new("TextLabel")
+welcome.Size = UDim2.new(1, 0, 1, 0)
+welcome.BackgroundTransparency = 1
+welcome.Text = "👋 Welcome!\n\n📋 Results will show here\n\n1️⃣ Scan assets first\n2️⃣ Use search or categories\n3️⃣ Use ⬆️⬇️ to scroll results\n4️⃣ 📋Path to copy location\n5️⃣ 🚀TP to teleport\n6️⃣ Get Asset IDs menu"
+welcome.TextColor3 = Color3.fromRGB(120, 120, 120)
+welcome.TextSize = 12
+welcome.Font = Enum.Font.Gotham
+welcome.Parent = RightPanel
+
+-- ═══════════════════════════════════════════════════════════════
+-- DONE
+-- ═══════════════════════════════════════════════════════════════
+
+print("═══════════════════════════════════")
+print("✅ Asset Explorer Mobile Loaded!")
+print("📋 Fixed: Scroll system + Manual scroll buttons")
+print("📋 Shows: ALL results (no limit)")
+print("═══════════════════════════════════")
+
+wait(0.1)
+Main.Visible = true
