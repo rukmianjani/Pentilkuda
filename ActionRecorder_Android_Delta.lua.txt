@@ -1,0 +1,1118 @@
+-- ═══════════════════════════════════════════════════════════════
+-- ⏺️ ACTION RECORDER - DELTA ANDROID VERSION
+-- Optimized for mobile touch screen recording & playback
+-- Perfect for: Fishing, Mining, Farming, Auto-clicking
+-- ═══════════════════════════════════════════════════════════════
+
+print("Loading Action Recorder (Delta Android)...")
+wait(0.5)
+
+-- ═══════════════════════════════════════════════════════════════
+-- SERVICES
+-- ═══════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- ═══════════════════════════════════════════════════════════════
+-- MOBILE DETECTION & COMPATIBILITY
+-- ═══════════════════════════════════════════════════════════════
+
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local isTablet = UserInputService.TouchEnabled and UserInputService.KeyboardEnabled
+
+print("Device Type:", isMobile and "Mobile" or (isTablet and "Tablet" or "PC"))
+print("Executor: Delta (Android)")
+
+-- ═══════════════════════════════════════════════════════════════
+-- RECORDER CORE (Mobile Optimized)
+-- ═══════════════════════════════════════════════════════════════
+
+local Recorder = {
+    IsRecording = false,
+    IsPlaying = false,
+    IsPaused = false,
+    Actions = {},
+    SavedRecordings = {},
+    CurrentRecording = nil,
+    StartTime = 0,
+    PlaySpeed = 1,
+    LoopMode = false,
+    LoopCount = 0,
+    MaxLoops = 0,
+    
+    -- Mobile specific
+    LastTouchPosition = nil,
+    TouchStartTime = 0,
+    
+    -- Connections
+    Connections = {},
+    
+    -- Statistics
+    Stats = {
+        TotalRecordings = 0,
+        TotalActions = 0,
+        LastRecordingDuration = 0
+    }
+}
+
+-- ═══════════════════════════════════════════════════════════════
+-- MOBILE TOUCH HELPER FUNCTIONS
+-- ═══════════════════════════════════════════════════════════════
+
+local function GetTouchPosition(input)
+    return input.Position
+end
+
+local function GetScreenPercentage(position)
+    local screenSize = camera.ViewportSize
+    return Vector2.new(
+        position.X / screenSize.X,
+        position.Y / screenSize.Y
+    )
+end
+
+local function GetPositionFromPercentage(percentage)
+    local screenSize = camera.ViewportSize
+    return Vector2.new(
+        percentage.X * screenSize.X,
+        percentage.Y * screenSize.Y
+    )
+end
+
+local function GetObjectAtPosition(position)
+    local unitRay = camera:ViewportPointToRay(position.X, position.Y)
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 500)
+    
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {character}
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local result = workspace:Raycast(unitRay.Origin, unitRay.Direction * 500, params)
+    
+    if result then
+        return result.Instance, result.Position
+    end
+    
+    return nil, nil
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- RECORDING FUNCTIONS (Mobile)
+-- ═══════════════════════════════════════════════════════════════
+
+function Recorder:StartRecording()
+    if self.IsRecording then
+        print("⚠️ Already recording!")
+        return
+    end
+    
+    self.IsRecording = true
+    self.Actions = {}
+    self.StartTime = tick()
+    
+    print("═══════════════════════════════════")
+    print("⏺️ RECORDING STARTED (Mobile Mode)")
+    print("═══════════════════════════════════")
+    
+    self:SetupMobileListeners()
+end
+
+function Recorder:StopRecording()
+    if not self.IsRecording then
+        print("⚠️ Not recording!")
+        return nil
+    end
+    
+    self.IsRecording = false
+    self:DisconnectListeners()
+    
+    local duration = tick() - self.StartTime
+    self.Stats.LastRecordingDuration = duration
+    self.Stats.TotalActions = #self.Actions
+    
+    print("═══════════════════════════════════")
+    print("⏹️ RECORDING STOPPED")
+    print("═══════════════════════════════════")
+    print("Duration:", string.format("%.2fs", duration))
+    print("Actions recorded:", #self.Actions)
+    print("═══════════════════════════════════")
+    
+    return self.Actions
+end
+
+function Recorder:RecordAction(actionType, data)
+    if not self.IsRecording then return end
+    
+    local action = {
+        Type = actionType,
+        Time = tick() - self.StartTime,
+        Data = data,
+        Character = {
+            Position = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position or Vector3.new(0,0,0),
+            CFrame = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.CFrame or CFrame.new(0,0,0)
+        }
+    }
+    
+    table.insert(self.Actions, action)
+    
+    if UpdateActionCount then
+        UpdateActionCount(#self.Actions)
+    end
+    
+    print(string.format("📝 [%.2fs] %s", action.Time, actionType))
+end
+
+function Recorder:SetupMobileListeners()
+    -- Touch/Tap Detection
+    self.Connections.TouchTap = UserInputService.TouchTap:Connect(function(touchPositions, gameProcessed)
+        if gameProcessed then return end
+        
+        for _, pos in ipairs(touchPositions) do
+            local screenPercent = GetScreenPercentage(pos)
+            local target, worldPos = GetObjectAtPosition(pos)
+            
+            self:RecordAction("TouchTap", {
+                ScreenPosition = pos,
+                ScreenPercent = screenPercent,
+                WorldPosition = worldPos,
+                Target = target,
+                TargetName = target and target.Name or "nil",
+                TargetPath = target and target:GetFullName() or "nil"
+            })
+        end
+    end)
+    
+    -- Touch Began (Tap Start)
+    self.Connections.InputBegan = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            local pos = GetTouchPosition(input)
+            local screenPercent = GetScreenPercentage(pos)
+            local target, worldPos = GetObjectAtPosition(pos)
+            
+            self.LastTouchPosition = pos
+            self.TouchStartTime = tick()
+            
+            self:RecordAction("TouchBegan", {
+                ScreenPosition = pos,
+                ScreenPercent = screenPercent,
+                WorldPosition = worldPos,
+                Target = target,
+                TargetName = target and target.Name or "nil",
+                TargetPath = target and target:GetFullName() or "nil"
+            })
+        end
+    end)
+    
+    -- Touch Ended (Tap End)
+    self.Connections.InputEnded = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            local duration = tick() - self.TouchStartTime
+            
+            self:RecordAction("TouchEnded", {
+                Duration = duration
+            })
+        end
+    end)
+    
+    -- Tool Activation
+    local function setupToolListener(tool)
+        if tool:IsA("Tool") then
+            self.Connections["Tool_" .. tool.Name] = tool.Activated:Connect(function()
+                self:RecordAction("ToolActivate", {
+                    ToolName = tool.Name
+                })
+            end)
+        end
+    end
+    
+    for _, tool in pairs(character:GetChildren()) do
+        setupToolListener(tool)
+    end
+    
+    self.Connections.ChildAdded = character.ChildAdded:Connect(setupToolListener)
+    
+    -- GUI Button Detection (Mobile UI)
+    local function checkGuiButtons(gui)
+        if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+            self.Connections["GUI_" .. gui:GetFullName()] = gui.MouseButton1Click:Connect(function()
+                self:RecordAction("GuiButtonClick", {
+                    ButtonName = gui.Name,
+                    ButtonPath = gui:GetFullName(),
+                    ButtonText = gui:IsA("TextButton") and gui.Text or ""
+                })
+            end)
+        end
+    end
+    
+    -- Check PlayerGui buttons
+    local playerGui = player:WaitForChild("PlayerGui")
+    for _, gui in pairs(playerGui:GetDescendants()) do
+        checkGuiButtons(gui)
+    end
+    
+    self.Connections.GuiDescendantAdded = playerGui.DescendantAdded:Connect(checkGuiButtons)
+    
+    -- Movement Recording (optimized for mobile)
+    local lastPos = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position or Vector3.new(0,0,0)
+    local lastRecordTime = tick()
+    
+    self.Connections.Movement = RunService.Heartbeat:Connect(function()
+        if self.IsRecording and character:FindFirstChild("HumanoidRootPart") then
+            local currentPos = character.HumanoidRootPart.Position
+            local timeSinceLastRecord = tick() - lastRecordTime
+            
+            -- Record movement every 1 second OR if moved more than 5 studs
+            if (currentPos - lastPos).Magnitude > 5 or timeSinceLastRecord > 1 then
+                self:RecordAction("Movement", {
+                    Position = currentPos,
+                    CFrame = character.HumanoidRootPart.CFrame
+                })
+                lastPos = currentPos
+                lastRecordTime = tick()
+            end
+        end
+    end)
+    
+    -- Wait/Delay Detection (auto-insert delays)
+    local lastActionTime = tick()
+    self.Connections.DelayDetector = RunService.Heartbeat:Connect(function()
+        if self.IsRecording then
+            local currentTime = tick()
+            local timeSinceLastAction = currentTime - lastActionTime
+            
+            -- If no action for 2+ seconds, record a wait
+            if timeSinceLastAction > 2 and #self.Actions > 0 then
+                local lastAction = self.Actions[#self.Actions]
+                if lastAction.Type ~= "Wait" then
+                    self:RecordAction("Wait", {
+                        Duration = timeSinceLastAction
+                    })
+                end
+            end
+            
+            if #self.Actions > 0 and self.Actions[#self.Actions].Time > lastActionTime - self.StartTime then
+                lastActionTime = currentTime
+            end
+        end
+    end)
+end
+
+function Recorder:DisconnectListeners()
+    for name, connection in pairs(self.Connections) do
+        if connection and connection.Disconnect then
+            pcall(function() connection:Disconnect() end)
+        end
+    end
+    self.Connections = {}
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- PLAYBACK FUNCTIONS (Mobile)
+-- ═══════════════════════════════════════════════════════════════
+
+function Recorder:PlayRecording(actions, loopMode, loopCount, speed)
+    if self.IsPlaying then
+        print("⚠️ Already playing!")
+        return
+    end
+    
+    if not actions or #actions == 0 then
+        print("⚠️ No actions to play!")
+        return
+    end
+    
+    self.IsPlaying = true
+    self.IsPaused = false
+    self.PlaySpeed = speed or 1
+    self.LoopMode = loopMode or false
+    self.MaxLoops = loopCount or 999999
+    self.LoopCount = 0
+    
+    spawn(function()
+        print("═══════════════════════════════════")
+        print("▶️ PLAYBACK STARTED (Mobile)")
+        print("═══════════════════════════════════")
+        print("Speed:", self.PlaySpeed .. "x")
+        print("Loop:", self.LoopMode and "YES" or "NO")
+        print("═══════════════════════════════════")
+        
+        repeat
+            self.LoopCount = self.LoopCount + 1
+            
+            if UpdateLoopCount then
+                UpdateLoopCount(self.LoopCount)
+            end
+            
+            print(string.format("🔄 Loop %d/%s", self.LoopCount, self.LoopMode and tostring(self.MaxLoops) or "1"))
+            
+            for i, action in ipairs(actions) do
+                if not self.IsPlaying then break end
+                
+                while self.IsPaused and self.IsPlaying do
+                    wait(0.1)
+                end
+                
+                if i > 1 then
+                    local delay = (action.Time - actions[i-1].Time) / self.PlaySpeed
+                    wait(math.max(0.05, delay))
+                end
+                
+                self:ExecuteMobileAction(action, i)
+            end
+            
+            if not self.LoopMode or self.LoopCount >= self.MaxLoops then
+                break
+            end
+            
+            wait(0.5)
+            
+        until not self.IsPlaying
+        
+        self.IsPlaying = false
+        self.IsPaused = false
+        
+        print("═══════════════════════════════════")
+        print("⏹️ PLAYBACK STOPPED")
+        print("═══════════════════════════════════")
+        
+        if UpdatePlaybackStatus then
+            UpdatePlaybackStatus("Stopped")
+        end
+    end)
+end
+
+function Recorder:ExecuteMobileAction(action, index)
+    local success, err = pcall(function()
+        
+        if action.Type == "TouchTap" or action.Type == "TouchBegan" then
+            -- Method 1: Try to click target object
+            if action.Data.Target and action.Data.Target.Parent then
+                local target = action.Data.Target
+                
+                -- Check for ClickDetector
+                local clickDetector = target:FindFirstChildOfClass("ClickDetector")
+                if clickDetector and fireclickdetector then
+                    fireclickdetector(clickDetector)
+                    print(string.format("✅ [%d] Clicked: %s", index, target.Name))
+                    return
+                end
+            end
+            
+            -- Method 2: Try to find by path
+            if action.Data.TargetPath and action.Data.TargetPath ~= "nil" then
+                local found = game
+                for part in string.gmatch(action.Data.TargetPath, "[^.]+") do
+                    if found then
+                        found = found:FindFirstChild(part)
+                    end
+                end
+                
+                if found then
+                    local cd = found:FindFirstChildOfClass("ClickDetector")
+                    if cd and fireclickdetector then
+                        fireclickdetector(cd)
+                        print(string.format("✅ [%d] Clicked: %s", index, action.Data.TargetName))
+                        return
+                    end
+                    
+                    -- Check for ProximityPrompt
+                    local pp = found:FindFirstChildOfClass("ProximityPrompt")
+                    if pp and fireproximityprompt then
+                        fireproximityprompt(pp)
+                        print(string.format("✅ [%d] Prompted: %s", index, action.Data.TargetName))
+                        return
+                    end
+                end
+            end
+            
+            -- Method 3: Virtual touch at position
+            if action.Data.ScreenPosition then
+                local pos = GetPositionFromPercentage(action.Data.ScreenPercent)
+                
+                -- Use VirtualUser to simulate tap
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton1(Vector2.new(pos.X, pos.Y))
+                
+                print(string.format("✅ [%d] Virtual Tap at %.0f, %.0f", index, pos.X, pos.Y))
+            end
+            
+        elseif action.Type == "ToolActivate" then
+            local tool = character:FindFirstChild(action.Data.ToolName)
+            if not tool then
+                tool = character:FindFirstChildOfClass("Tool")
+            end
+            
+            if tool and tool:IsA("Tool") then
+                tool:Activate()
+                print(string.format("✅ [%d] Tool: %s", index, action.Data.ToolName))
+            end
+            
+        elseif action.Type == "GuiButtonClick" then
+            local found = game
+            for part in string.gmatch(action.Data.ButtonPath, "[^.]+") do
+                if found then
+                    found = found:FindFirstChild(part)
+                end
+            end
+            
+            if found and (found:IsA("TextButton") or found:IsA("ImageButton")) then
+                -- Simulate button click
+                for _, connection in pairs(getconnections(found.MouseButton1Click)) do
+                    connection:Fire()
+                end
+                print(string.format("✅ [%d] GUI: %s", index, action.Data.ButtonName))
+            end
+            
+        elseif action.Type == "Movement" then
+            if character:FindFirstChild("HumanoidRootPart") then
+                character.HumanoidRootPart.CFrame = action.Data.CFrame
+                print(string.format("✅ [%d] Moved", index))
+            end
+            
+        elseif action.Type == "Wait" then
+            local waitTime = action.Data.Duration / self.PlaySpeed
+            wait(waitTime)
+            print(string.format("⏳ [%d] Waited %.2fs", index, waitTime))
+        end
+        
+    end)
+    
+    if not success then
+        print(string.format("❌ [%d] Error: %s", index, tostring(err)))
+    end
+end
+
+function Recorder:PausePlayback()
+    if self.IsPlaying and not self.IsPaused then
+        self.IsPaused = true
+        print("⏸️ Paused")
+    end
+end
+
+function Recorder:ResumePlayback()
+    if self.IsPlaying and self.IsPaused then
+        self.IsPaused = false
+        print("▶️ Resumed")
+    end
+end
+
+function Recorder:StopPlayback()
+    self.IsPlaying = false
+    self.IsPaused = false
+    print("⏹️ Stopped")
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- SAVE/LOAD (Same as PC version)
+-- ═══════════════════════════════════════════════════════════════
+
+function Recorder:SaveRecording(name)
+    if not name or name == "" then
+        name = "Recording_" .. os.date("%H%M%S")
+    end
+    
+    self.SavedRecordings[name] = {
+        Actions = self.Actions,
+        Duration = #self.Actions > 0 and self.Actions[#self.Actions].Time or 0,
+        ActionCount = #self.Actions,
+        SavedAt = os.date("%Y-%m-%d %H:%M:%S"),
+        Platform = "Android_Delta"
+    }
+    
+    self.Stats.TotalRecordings = self.Stats.TotalRecordings + 1
+    print("💾 Saved:", name)
+    return name
+end
+
+function Recorder:LoadRecording(name)
+    if self.SavedRecordings[name] then
+        self.CurrentRecording = self.SavedRecordings[name]
+        print("📂 Loaded:", name)
+        return self.CurrentRecording.Actions
+    end
+    return nil
+end
+
+function Recorder:DeleteRecording(name)
+    if self.SavedRecordings[name] then
+        self.SavedRecordings[name] = nil
+        print("🗑️ Deleted:", name)
+        return true
+    end
+    return false
+end
+
+function Recorder:GetRecordingList()
+    local list = {}
+    for name, data in pairs(self.SavedRecordings) do
+        table.insert(list, {
+            Name = name,
+            Duration = data.Duration,
+            Actions = data.ActionCount,
+            Date = data.SavedAt
+        })
+    end
+    return list
+end
+
+function Recorder:ExportRecording(name)
+    local recording = self.SavedRecordings[name]
+    if recording then
+        local exported = HttpService:JSONEncode(recording)
+        setclipboard(exported)
+        print("📋 Exported:", name)
+        return true
+    end
+    return false
+end
+
+function Recorder:ImportRecording(json, name)
+    local success = pcall(function()
+        local imported = HttpService:JSONDecode(json)
+        if not name or name == "" then
+            name = "Imported_" .. os.date("%H%M%S")
+        end
+        self.SavedRecordings[name] = imported
+        print("📥 Imported:", name)
+    end)
+    return success
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- CREATE GUI (Mobile Optimized)
+-- ═══════════════════════════════════════════════════════════════
+
+local Parent = CoreGui
+if not pcall(function() return CoreGui.Name end) then
+    Parent = player:WaitForChild("PlayerGui")
+end
+
+for _, gui in pairs(Parent:GetChildren()) do
+    if gui.Name == "ActionRecorder" then
+        gui:Destroy()
+    end
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ActionRecorder"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = Parent
+
+-- Main Frame (Mobile sized)
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 380, 0, 520)
+Main.Position = UDim2.new(0.5, -190, 0.5, -260)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = Main
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 35)
+TitleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Main
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 12)
+TitleCorner.Parent = TitleBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -75, 1, 0)
+Title.Position = UDim2.new(0, 8, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⏺️ RECORDER (Android)"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 14
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TitleBar
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -32, 0, 3.5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 14
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.Parent = CloseBtn
+
+CloseBtn.MouseButton1Click:Connect(function()
+    Recorder:StopPlayback()
+    Recorder:StopRecording()
+    ScreenGui:Destroy()
+end)
+
+-- Minimize Button
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 28, 0, 28)
+MinBtn.Position = UDim2.new(1, -64, 0, 3.5)
+MinBtn.BackgroundColor3 = Color3.fromRGB(220, 180, 50)
+MinBtn.Text = "-"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextSize = 18
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.BorderSizePixel = 0
+MinBtn.Parent = TitleBar
+
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 8)
+MinCorner.Parent = MinBtn
+
+local isMinimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    if isMinimized then
+        Main.Size = UDim2.new(0, 380, 0, 520)
+        MinBtn.Text = "-"
+        isMinimized = false
+    else
+        Main.Size = UDim2.new(0, 380, 0, 35)
+        MinBtn.Text = "+"
+        isMinimized = true
+    end
+end)
+
+-- Content Frame
+local Content = Instance.new("ScrollingFrame")
+Content.Size = UDim2.new(1, -8, 1, -42)
+Content.Position = UDim2.new(0, 4, 0, 38)
+Content.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Content.BorderSizePixel = 0
+Content.ScrollBarThickness = 5
+Content.CanvasSize = UDim2.new(0, 0, 0, 0)
+Content.Parent = Main
+
+local ContentCorner = Instance.new("UICorner")
+ContentCorner.CornerRadius = UDim.new(0, 10)
+ContentCorner.Parent = Content
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 4)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = Content
+
+local Padding = Instance.new("UIPadding")
+Padding.PaddingTop = UDim.new(0, 6)
+Padding.PaddingBottom = UDim.new(0, 6)
+Padding.PaddingLeft = UDim.new(0, 6)
+Padding.PaddingRight = UDim.new(0, 6)
+Padding.Parent = Content
+
+Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    Content.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 12)
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- UI HELPER FUNCTIONS (Mobile Optimized)
+-- ═══════════════════════════════════════════════════════════════
+
+local function CreateSection(text)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, 0, 0, 25)
+    section.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    section.BorderSizePixel = 0
+    section.Parent = Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = section
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -8, 1, 0)
+    label.Position = UDim2.new(0, 8, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(100, 180, 255)
+    label.TextSize = 12
+    label.Font = Enum.Font.GothamBold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = section
+end
+
+local function CreateButton(text, color, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 36)
+    btn.BackgroundColor3 = color
+    btn.BorderSizePixel = 0
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        spawn(callback)
+    end)
+    
+    return btn
+end
+
+local function CreateLabel(text, height)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, height or 30)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.TextSize = 11
+    label.Font = Enum.Font.Gotham
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    label.Parent = Content
+    return label
+end
+
+local function CreateTextBox(placeholder, callback)
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(1, 0, 0, 32)
+    box.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    box.BorderSizePixel = 0
+    box.PlaceholderText = placeholder
+    box.Text = ""
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    box.TextSize = 11
+    box.Font = Enum.Font.Gotham
+    box.ClearTextOnFocus = false
+    box.Parent = Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = box
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 6)
+    padding.Parent = box
+    
+    if callback then
+        box.FocusLost:Connect(function(enter)
+            if enter and box.Text ~= "" then
+                spawn(function() callback(box.Text) end)
+            end
+        end)
+    end
+    
+    return box
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- BUILD MOBILE UI
+-- ═══════════════════════════════════════════════════════════════
+
+CreateSection("📊 STATUS")
+
+local statusLabel = CreateLabel("📱 Mobile Mode Ready", 38)
+local actionCountLabel = CreateLabel("Actions: 0 | Duration: 0.0s", 22)
+
+function UpdateActionCount(count)
+    local duration = tick() - Recorder.StartTime
+    actionCountLabel.Text = string.format("Actions: %d | Time: %.1fs", count, duration)
+end
+
+function UpdatePlaybackStatus(status)
+    if status == "Recording" then
+        statusLabel.Text = "⏺️ Recording...\nTap screen to record actions"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    elseif status == "Playing" then
+        statusLabel.Text = "▶️ Playing recording..."
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    elseif status == "Paused" then
+        statusLabel.Text = "⏸️ Playback paused"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+    else
+        statusLabel.Text = "📱 Mobile Mode Ready"
+        statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+end
+
+CreateSection("⏺️ RECORDING")
+
+local recordBtn = CreateButton("⏺️ START", Color3.fromRGB(220, 60, 60), function()
+    if Recorder.IsRecording then return end
+    
+    Recorder:StartRecording()
+    UpdatePlaybackStatus("Recording")
+    recordBtn.Text = "🔴 RECORDING..."
+    recordBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+end)
+
+CreateButton("⏹️ STOP", Color3.fromRGB(100, 100, 100), function()
+    if not Recorder.IsRecording then return end
+    
+    Recorder:StopRecording()
+    UpdatePlaybackStatus("Stopped")
+    recordBtn.Text = "⏺️ START"
+    recordBtn.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+end)
+
+CreateSection("▶️ PLAYBACK")
+
+local loopCountLabel = CreateLabel("Loop: 0", 22)
+
+function UpdateLoopCount(count)
+    loopCountLabel.Text = string.format("Loop: %d | Speed: %.1fx", count, Recorder.PlaySpeed)
+end
+
+CreateButton("▶️ PLAY ONCE", Color3.fromRGB(60, 180, 60), function()
+    if #Recorder.Actions == 0 then return end
+    Recorder:PlayRecording(Recorder.Actions, false, 1, Recorder.PlaySpeed)
+    UpdatePlaybackStatus("Playing")
+end)
+
+CreateButton("🔁 LOOP", Color3.fromRGB(100, 150, 200), function()
+    if #Recorder.Actions == 0 then return end
+    Recorder:PlayRecording(Recorder.Actions, true, 999999, Recorder.PlaySpeed)
+    UpdatePlaybackStatus("Playing")
+end)
+
+CreateButton("⏸️ PAUSE", Color3.fromRGB(200, 150, 50), function()
+    if Recorder.IsPlaying and not Recorder.IsPaused then
+        Recorder:PausePlayback()
+        UpdatePlaybackStatus("Paused")
+    elseif Recorder.IsPaused then
+        Recorder:ResumePlayback()
+        UpdatePlaybackStatus("Playing")
+    end
+end)
+
+CreateButton("⏹️ STOP", Color3.fromRGB(150, 50, 50), function()
+    Recorder:StopPlayback()
+    UpdatePlaybackStatus("Stopped")
+    loopCountLabel.Text = "Loop: 0"
+end)
+
+CreateSection("⚙️ SPEED")
+
+local speedSlider = CreateTextBox("Speed (0.5 - 5.0)")
+speedSlider.Text = "1.0"
+speedSlider.FocusLost:Connect(function()
+    local speed = tonumber(speedSlider.Text)
+    if speed and speed >= 0.1 and speed <= 10 then
+        Recorder.PlaySpeed = speed
+    else
+        speedSlider.Text = tostring(Recorder.PlaySpeed)
+    end
+end)
+
+CreateSection("💾 SAVE/LOAD")
+
+local saveNameBox = CreateTextBox("Recording name")
+
+CreateButton("💾 SAVE", Color3.fromRGB(70, 130, 180), function()
+    if #Recorder.Actions == 0 then return end
+    Recorder:SaveRecording(saveNameBox.Text)
+    saveNameBox.Text = ""
+end)
+
+CreateLabel("Saved Recordings:", 22)
+
+local recordingsList = Instance.new("ScrollingFrame")
+recordingsList.Size = UDim2.new(1, 0, 0, 120)
+recordingsList.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+recordingsList.BorderSizePixel = 0
+recordingsList.ScrollBarThickness = 4
+recordingsList.CanvasSize = UDim2.new(0, 0, 0, 0)
+recordingsList.Parent = Content
+
+local recCorner = Instance.new("UICorner")
+recCorner.CornerRadius = UDim.new(0, 6)
+recCorner.Parent = recordingsList
+
+local recLayout = Instance.new("UIListLayout")
+recLayout.Padding = UDim.new(0, 2)
+recLayout.Parent = recordingsList
+
+recLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    recordingsList.CanvasSize = UDim2.new(0, 0, 0, recLayout.AbsoluteContentSize.Y + 4)
+end)
+
+local function RefreshRecordingsList()
+    for _, child in pairs(recordingsList:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+    
+    local list = Recorder:GetRecordingList()
+    
+    if #list == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size = UDim2.new(1, -4, 1, 0)
+        empty.BackgroundTransparency = 1
+        empty.Text = "No recordings"
+        empty.TextColor3 = Color3.fromRGB(150, 150, 150)
+        empty.TextSize = 10
+        empty.Font = Enum.Font.Gotham
+        empty.Parent = recordingsList
+        return
+    end
+    
+    for _, rec in ipairs(list) do
+        local item = Instance.new("Frame")
+        item.Size = UDim2.new(1, -4, 0, 50)
+        item.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+        item.BorderSizePixel = 0
+        item.Parent = recordingsList
+        
+        local itemCorner = Instance.new("UICorner")
+        itemCorner.CornerRadius = UDim.new(0, 4)
+        itemCorner.Parent = item
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, -85, 0, 14)
+        nameLabel.Position = UDim2.new(0, 4, 0, 2)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = rec.Name
+        nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameLabel.TextSize = 10
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLabel.Parent = item
+        
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(1, -85, 0, 11)
+        infoLabel.Position = UDim2.new(0, 4, 0, 16)
+        infoLabel.BackgroundTransparency = 1
+        infoLabel.Text = string.format("%d actions | %.1fs", rec.Actions, rec.Duration)
+        infoLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        infoLabel.TextSize = 8
+        infoLabel.Font = Enum.Font.Gotham
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = item
+        
+        local dateLabel = Instance.new("TextLabel")
+        dateLabel.Size = UDim2.new(1, -85, 0, 10)
+        dateLabel.Position = UDim2.new(0, 4, 0, 27)
+        dateLabel.BackgroundTransparency = 1
+        dateLabel.Text = rec.Date
+        dateLabel.TextColor3 = Color3.fromRGB(120, 120, 120)
+        dateLabel.TextSize = 7
+        dateLabel.Font = Enum.Font.Gotham
+        dateLabel.TextXAlignment = Enum.TextXAlignment.Left
+        dateLabel.Parent = item
+        
+        local loadBtn = Instance.new("TextButton")
+        loadBtn.Size = UDim2.new(0, 38, 0, 15)
+        loadBtn.Position = UDim2.new(1, -42, 0, 2)
+        loadBtn.BackgroundColor3 = Color3.fromRGB(60, 150, 60)
+        loadBtn.Text = "📂"
+        loadBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        loadBtn.TextSize = 10
+        loadBtn.Font = Enum.Font.GothamBold
+        loadBtn.BorderSizePixel = 0
+        loadBtn.Parent = item
+        
+        local loadCorner = Instance.new("UICorner")
+        loadCorner.CornerRadius = UDim.new(0, 3)
+        loadCorner.Parent = loadBtn
+        
+        loadBtn.MouseButton1Click:Connect(function()
+            Recorder:LoadRecording(rec.Name)
+        end)
+        
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.new(0, 38, 0, 15)
+        delBtn.Position = UDim2.new(1, -42, 0, 19)
+        delBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        delBtn.Text = "🗑️"
+        delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        delBtn.TextSize = 10
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.BorderSizePixel = 0
+        delBtn.Parent = item
+        
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 3)
+        delCorner.Parent = delBtn
+        
+        delBtn.MouseButton1Click:Connect(function()
+            if Recorder:DeleteRecording(rec.Name) then
+                RefreshRecordingsList()
+            end
+        end)
+        
+        local expBtn = Instance.new("TextButton")
+        expBtn.Size = UDim2.new(0, 38, 0, 13)
+        expBtn.Position = UDim2.new(1, -42, 0, 36)
+        expBtn.BackgroundColor3 = Color3.fromRGB(100, 120, 180)
+        expBtn.Text = "📋"
+        expBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        expBtn.TextSize = 9
+        expBtn.Font = Enum.Font.GothamBold
+        expBtn.BorderSizePixel = 0
+        expBtn.Parent = item
+        
+        local expCorner = Instance.new("UICorner")
+        expCorner.CornerRadius = UDim.new(0, 3)
+        expCorner.Parent = expBtn
+        
+        expBtn.MouseButton1Click:Connect(function()
+            Recorder:ExportRecording(rec.Name)
+        end)
+    end
+end
+
+CreateButton("🔄 REFRESH", Color3.fromRGB(80, 80, 80), function()
+    RefreshRecordingsList()
+end)
+
+CreateSection("ℹ️ INFO")
+
+CreateLabel([[
+📱 MOBILE RECORDER (Delta)
+
+1️⃣ START recording
+2️⃣ Tap screen to record
+3️⃣ STOP recording
+4️⃣ PLAY or LOOP
+
+✅ Records:
+• Screen taps
+• Tool usage
+• GUI buttons
+• Movement
+• Delays
+
+💡 Works on all games!
+Perfect for AFK farming!
+]], 160)
+
+RefreshRecordingsList()
+
+print("═══════════════════════════════════")
+print("✅ MOBILE RECORDER READY!")
+print("═══════════════════════════════════")
+print("Platform: Android (Delta)")
+print("Touch detection: Active")
+print("Ready to record!")
+print("═══════════════════════════════════")
+
+Main.Visible = true
